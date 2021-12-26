@@ -1,0 +1,665 @@
+\documentclass{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage{url, hyperref, amsmath, amsfonts, stmaryrd, amssymb, amsthm, mathtools, enumerate, bm, geometry, tabularx, graphicx}
+\newcounter{currentenumi}
+
+\usepackage[ruled]{algorithm2e}
+
+\usetheme{Boadilla}
+\usecolortheme{default}
+
+\date{\today}
+
+\title[Google Ngrams]{Google Ngrams}
+\author[AMS 586: Time Series]{Robert Matsibekker, Kai Li,\\Cruz Sanchez Hugo, Thomas Green}
+
+\institute[]{Applied Mathematics and Statistics, Stony Brook University}
+
+\begin{document}
+<<setup, include=FALSE>>=
+knitr::opts_knit$set(latex.tilde = r"(\hlopt{\scriptsize{\ensuremath{\sim}}})")
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+@
+
+\frame{\titlepage}
+
+\begin{frame}[fragile]
+\frametitle{Introduction}
+N-gram is a concept from computational linguistics and probability, and it is defined as a contiguous sequence of n items from a sample of text (called corpora). This sequence can be any combination of phonemes, syllables, letters, words since it has a meaning in the language where it comes from. If it is a single word, it is called unigram, an expression with two words is a bigram, and so on (source: \url{https://en.wikipedia.org/wiki/N-gram}).    
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Introduction}
+In this work, we retrieved our data from Google Ngram Viewer for the word “peace” from the corpora in English. The English corpora are composed of printed books in this language and their data is aggregated in years, from 1500 to 2019. The program is an online search engine that searches for a given ngram and returns the normalized percentage of appearance of the searched ngrams on books published each year (source: \url{https://en.wikipedia.org/wiki/Google_Ngram_Viewer}).\\~\
+
+It can be accessed on this page: \url{https://books.google.com/ngrams}.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Setting, libraries, and reading data}
+The series is discontinuous before 1533.
+%https://stackoverflow.com/questions/25646333/code-chunk-font-size-in-rmarkdown-with-knitr-and-latex
+<<echo=FALSE, message=FALSE, warning=FALSE>>=
+require(ngramr)
+require(fitdistrplus)
+require(logspline)
+require(tseries)
+require(forecast)
+require(stringr)
+require(PerformanceAnalytics)
+require(nortest)
+require(strucchange)
+@
+
+<<eval=FALSE>>=
+df = ngram("peace", year_start = 1533, smoothing = 0, 
+           count = TRUE, case_ins = TRUE, aggregate = TRUE)
+
+str(df)
+@
+
+<<echo=FALSE, size="scriptsize">>=
+df = ngram("peace", year_start = 1533, smoothing = 0, 
+           count = TRUE, case_ins = TRUE, aggregate = TRUE)
+str(df)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Setting, libraries, and reading data}
+<<eval=FALSE>>=
+summary(df)
+@
+
+<<echo=FALSE, size="footnotesize">>=
+summary(df)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Setting, libraries, and reading data}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+ots = ts(df[["Frequency"]], start=min(df[["Year"]]), end=max(df[["Year"]]),
+         frequency=1)
+
+par(mar=c(4,4,4,2))
+plot(ots, col=rgb(0,0,0,0.2), main="Original time series: frequencies of the word \"peace\"\n for the  period 1533-2019", xlab="Time", ylab="Frequency")
+lines(predict(smooth.spline(ots~time(ots), spar=0.45)), lwd=3, 
+      col="darkgreen")
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Setting, libraries, and reading data}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+acf(ots, main="ACF for original time series - period 1533-2019") 
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Setting, libraries, and reading data}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+pacf(ots, main="PACF for original time series - period 1533-2019")
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Setting, libraries, and reading data}
+<<>>=
+adf.test(ots)
+@
+It is stationary at 10\%, but not at 5\%.
+<<echo=FALSE>>=
+complete_ts=ots
+ots=window(complete_ts, end=2019-10)
+@
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Investigating Structural Breaks}
+Reference: \url{https://cran.r-project.org/web/packages/strucchange/vignettes/strucchange-intro.pdf}\\~\
+
+The first half of the series has a different behavior from the second half.\\~\
+
+When we break the series into two pieces we get two stationary models so we decided to investigate for structural breaks.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Investigating Structural Breaks}
+
+<<eval=FALSE>>=
+fit = auto.arima(ots, seasonal=FALSE, test="adf", ic="bic", 
+                 lambda=NULL, stepwise=FALSE, 
+                 approximation=FALSE, max.p=3, max.q=3)
+summary(fit)
+@
+<<echo=FALSE, size="tiny">>=
+fit = auto.arima(ots, seasonal=FALSE, test="adf", ic="bic", lambda=NULL,
+                 stepwise=FALSE, approximation=FALSE, max.p=3, max.q=3)
+summary(fit)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Investigating Structural Breaks}
+<<>>=
+as.data.frame(round(confint(fit), 4))
+@
+
+We don’t have a theoretical model, as it is shown in the reference (the authors use a theoretical macroeconomic relation), so we assume the following hypothesis: a time series with a structural change fitted by only one model (set of parameters) has residuals which show that the model is not suitable. This inadequacy can be detected by testing structural breaks of the level of the residuals.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Investigating Structural Breaks}
+The next test can detect many structural breaks.
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+# Bai & Perron (2003) test - H0: no structural change
+BPtest=breakpoints(residuals(fit)~1, breaks=5)
+plot(BPtest, breaks = 5)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Investigating Structural Breaks}
+Minimum BIC is at 1. So we have 1 structural break.
+<<>>=
+breakdates(BPtest)
+#round(min(time(ots)) + breakdates(BPtest)*
+# (max(time(ots)) - min(time(ots)))) 
+# use it when it is a fraction
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Investigating Structural Breaks}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))  # margins: bottom, left, top, right
+plot(ots, col=rgb(0,0,0,0.2), main='Frequencies of the word "peace" for the period 1533-2009,\nand the structural break', xlab="Time", ylab="Frequency")
+lines(predict(smooth.spline(ots~time(ots), spar=0.45)), lwd=3, 
+      col="darkgreen")
+abline(v=1816, lty="dashed") 
+@
+Vertical line at the structural break.
+\end{frame}
+
+<<echo=FALSE, warning=FALSE, message=FALSE, results="hide">>=
+require(MSwM)
+
+res=residuals(fit)
+fit0=lm(res ~ 1)
+
+best=msmFit(fit0, k=2, sw=rep(TRUE, 2)) # sw=(TRUE, TRUE) 
+# means two intercepts and two res. standard dev/err
+summary(best)
+@
+
+\begin{frame}[fragile]
+\frametitle{One structural break (hidden states Markov model)}
+Next, we show that this (hidden states Markov) model of regime-switching finds a structural change at a date similar to the date we formerly found, which corresponds to 284 (the year 1817) in the following plot (the plot shows probabilities for each regime).
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{One structural break (hidden states Markov model)}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2), col=rgb(0,0,1,0.5))  
+
+plotProb(best, 1)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{One structural break (hidden states Markov model)}
+Why did these structural breaks happen?\\~\
+
+Shifts in the relative frequency of the word “peace” might be related to changes in legislation, technological improvements, social development, and historical events:
+\begin{enumerate}
+\item Change in legislation: at the end of the XVIII century, changes in legislation (the USA and GB) made it easier to publish dissent texts (source: \url{https://www.britannica.com/topic/publishing/Spread-of-education-and-literacy#ref28633)}.
+
+\item Technological improvements: several innovations related to publishing happened at the beginning of the XIX century and made it much cheaper (source: \url{https://www.britannica.com/topic/publishing/Spread-of-education-and-literacy#ref28633}).
+
+\item Social development: increase in population size during the XIX century (2x in GB, 5x in the USA) and higher social status associated with reading (source: \url{https://www.britannica.com/topic/publishing/Spread-of-education-and-literacy#ref28633}).
+\setcounter{currentenumi}{\theenumi}
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{One structural break (hidden states Markov model)}
+\begin{enumerate}
+\setcounter{enumi}{\thecurrentenumi}
+\item Historical events: several major events in American and British history, associated with peace and war, happened around 1816:
+\begin{enumerate}
+\item War against Great Britain in 1812 (source: \url{https://history.state.gov/milestones/1801-1829/war-of-1812}), part of the world scenario of the Napoleonic Wars.
+\item War and against the Barbary States (pirate states in North Africa) in 1816 (source: \url{https://history.state.gov/milestones/1801-1829/barbary-wars})
+\item The Rush-Bagot Pact, 1817 and Convention of 1818, between the USA and Great Britain, about patrolling the border with Canada (source: \url{https://history.state.gov/milestones/1801-1829/rush-bagot}).
+\item Acquisition of Florida: Treaty of Adams-Onis (1819) and Transcontinental Treaty (1821), a series of border conflicts between Spain and the USA, fueled by the support of Great Britain to the Spanish colonies (source: \url{https://history.state.gov/milestones/1801-1829/florida}).
+\end{enumerate}
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+ots1=window(ots, end=1816)
+
+par(mar=c(4,4,4,2))
+plot(ots1, col=rgb(0,0,0,0.2), main="Frequencies of the word \"peace\" for the period 1533-1816", xlab="Time", ylab="Frequency")
+lines(predict(smooth.spline(ots1~time(ots1), spar=0.45)), lwd=3, 
+      col="darkgreen")
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2), mfrow=c(1,2)) 
+acf(ots1, main="ACF for frequencies\nperiod 1533-1816")  
+pacf(ots1, main="PACF for frequencies\nperiod 1533-1816") 
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<>>=
+adf.test(ots1)
+@
+It is stationary at 10\%, but not at 5\%.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<eval=FALSE>>=
+fit_1 = auto.arima(ots1, seasonal=FALSE, test="adf", 
+                   ic="bic", lambda=NULL, stepwise=FALSE, 
+                   approximation=FALSE, max.p=3, max.q=3)
+summary(fit_1)
+@
+<<echo=FALSE, size="tiny">>=
+fit_1 = auto.arima(ots1, seasonal=FALSE, test="adf", ic="bic", lambda=NULL,
+                   stepwise=FALSE, approximation=FALSE, max.p=3, max.q=3)
+summary(fit_1)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<>>=
+as.data.frame(round(confint(fit_1), 4))
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+resid=residuals(fit_1)
+
+par(mar=c(4,4,4,2))
+plot(resid, col=rgb(0,0,0,0.2), main="Residuals: arima(2, 0, 1) for frequencies of the word \"peace\"\n for the period 1533-1816", 
+     xlab="Time", ylab="Residual")
+lines(predict(smooth.spline(resid~time(resid), spar=0.45)), lwd=3, 
+      col="darkgreen")
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+hist(resid, breaks=15, main="Histogram of the residuals", xlab="Residual",
+     col=rgb(0,0,1,0.3))
+abline(v=median(resid), lwd=3)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<>>=
+shapiro.test(resid)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))  # margins: bottom, left, top, right
+acf(resid, main="ACF for residuals - period 1533-1816") 
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<>>=
+Box.test(resid, type = "Ljung-Box")
+# H0: indep./uncorr.
+@
+Residuals are independent/uncorrelated.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+plot(abs(resid)^2, col=rgb(0,0,0,0.2), main="Squared residuals: arima(2, 0, 1) for frequencies of the word \"peace\"\n for the period 1533-1816", xlab="Time",
+     ylab="Squared residual")
+lines(predict(smooth.spline(abs(resid)^2~time(abs(resid)^2), spar=0.45)),
+      lwd=3, col="darkgreen")
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+hist(abs(resid)^2, breaks=15, main="Histogram of the squared residuals",
+     xlab="Squared residual", col=rgb(0,0,1,0.3))
+abline(v=median(abs(resid)^2), lwd=3)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+acf(abs(resid)^2, main="ACF for squared residuals - period 1533-1816")  
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{First model - 1533-1816}
+<<>>=
+Box.test(abs(resid)^2, type = "Ljung-Box") 
+# H0: indep./uncorr.
+@
+Squared residuals are independent/uncorrelated.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+ots2=window(ots, start=1817)
+
+par(mar=c(4,4,4,2))
+plot(ots2, col=rgb(0,0,0,0.2), main="Frequencies of the word \"peace\" for the period 1817-2009", xlab="Time", ylab="Frequency")
+lines(predict(smooth.spline(ots2~time(ots2), spar=0.45)), lwd=3, 
+      col="darkgreen") 
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2), mfrow=c(1,2))
+acf(ots2, main="ACF for period 1817-2009")  
+pacf(ots2, main="PACF for period 1817-2009")
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<>>=
+adf.test(ots2)
+@
+ADF test does not reject non-stationarity even at 10\%. But the best model for this series with auto.arima is an AR(1). We prefer to difference the series.
+<<>>=
+dots2=na.omit(diff(ots2))
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2), mfrow=c(1,2))
+acf(dots2, main="ACF for diff. frequencies\nperiod 1817-2009")  
+pacf(dots2, main="PACF for diff. frequencies\nperiod 1817-2009") 
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<eval=FALSE>>=
+fit_2 = auto.arima(dots2, seasonal=FALSE, test="adf", 
+                   ic="bic", lambda=NULL, stepwise=FALSE, 
+                   approximation=FALSE, max.p=3, max.q=3)
+summary(fit_2)
+@
+<<echo=FALSE, size="scriptsize">>=
+fit_2 = auto.arima(dots2, seasonal=FALSE, test="adf", 
+                   ic="bic", lambda=NULL, stepwise=FALSE, 
+                   approximation=FALSE, max.p=3, max.q=3)
+summary(fit_2)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<eval=FALSE>>=
+fit_2 = Arima(ots2, order=c(0,1,0))
+summary(fit_2)
+@
+<<echo=FALSE, size="scriptsize">>=
+fit_2 = Arima(ots2, order=c(0,1,0))
+summary(fit_2)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+Checking the residuals
+<<echo=FALSE, fig.align="center", out.width="2.8in">>=
+resid=residuals(fit_2)
+
+par(mar=c(4,4,4,2))
+plot(resid, col=rgb(0,0,0,0.2), main="Residuals: arima(0, 1, 0) for frequencies of the word \"peace\"\n for the period 1817-2009", xlab="Time", 
+     ylab="Residual")
+lines(predict(smooth.spline(resid~time(resid), spar=0.45)), lwd=3,  
+      col="darkgreen")
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+hist(resid, breaks=15, main="Histogram of the residuals", xlab="Residual", 
+     col=rgb(0,0,1,0.3))
+abline(v=median(resid), lwd=3)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<>>=
+shapiro.test(resid)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+acf(resid, main="ACF for residuals - period 1817-2009") 
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<>>=
+Box.test(resid, type = "Ljung-Box")
+# H0: indep./uncorr.
+@
+Residuals are independent/uncorrelated.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+Checking the squared residuals
+<<echo=FALSE, fig.align="center", out.width="2.8in">>=
+par(mar=c(4,4,4,2))
+plot(abs(resid)^2, col=rgb(0,0,0,0.2), main="Squared residuals: arima(0, 1, 0) for frequencies of the word \"peace\"\n for the period 1817-2009", xlab="Time",
+     ylab="Squared residual")
+lines(predict(smooth.spline(abs(resid)^2~time(abs(resid)^2), spar=0.45)),
+      lwd=3, col="darkgreen")
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+hist(abs(resid)^2, breaks=15, main="Histogram of the squared residuals", 
+     xlab="Squared residual", col=rgb(0,0,1,0.3))
+abline(v=median(abs(resid)^2), lwd=3)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+par(mar=c(4,4,4,2))
+acf(abs(resid)^2, main="ACF for squared residuals - period 1817-2009") 
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{2 different models}
+\framesubtitle{Second model - 1817-2009}
+<<>>=
+Box.test(abs(resid)^2, type = "Ljung-Box")
+# H0: indep./uncorr.
+@
+Squared residuals are not independent/uncorrelated.\\~\
+
+Squared residuals are correlated, but the mean model is a random walk. So, we decided not to extend the modeling to a more complex model like GARCH for example.
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Forecast using the model for the second regime - period 1817-2009 -, forecasting 2010-2019}
+<<echo=FALSE, fig.align="center", out.width="3in">>=
+# 10 steps ahead at once
+
+interval=range(window(complete_ts, start=1817))
+yval=seq(interval[1], interval[2], length.out=4)
+
+par(mar=c(4,4,4,2))
+Pred = forecast(fit_2, h=10, level=0.95)
+plot(Pred, col=4, las=1, yaxt="n", ylab="Frequency", xlab="Year")
+axis(2, at=yval, labels=sprintf("%.1e", yval), las=0)
+abline(v=c(1816, 2009, 2019), lty="dotted", col=4, lwd=1)
+lines(2010:2019, window(complete_ts, start=2010), lty="dotted", col="red", 
+      lwd=1)
+legend(1900, 2.6e-4, legend=c("Observations", "Observations for test",
+                              "Prediction", "Bounds of CI"), 
+       col=c(4, "red", 4, "gray80"), lty=c(1,3,1,1), lwd=c(1,1,3,7))
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Forecast using the model for the second regime - period 1817-2009 -, forecasting 2010-2019}
+A closer look at the forecast
+<<echo=FALSE, fig.align="center", out.width="2.8in">>=
+interval=range(window(complete_ts, start=1940))
+interval[1]=0.2*interval[1]
+yval=seq(interval[1], interval[2], length.out=4)
+
+par(mar=c(4,4,4,2))
+Pred = forecast(fit_2, h=10, level=0.95)
+plot(Pred, include=10, col=4, las=1, yaxt="n", ylab="Frequency", xlab="Year",
+     ylim=interval)
+axis(2, at=yval, labels=sprintf("%.1e", yval), las=0)
+abline(v=c(2009, 2019), lty="dotted", col=4, lwd=1)
+lines(2010:2019, window(complete_ts, start=2010), lty="dotted", col="red", 
+      lwd=1)
+legend(2000, 1.5e-4, legend=c("Observations", "Observations for test",
+                              "Prediction", "Bounds of CI"),
+       col=c(4, "red", 4, "gray80"), lty=c(1,3,1,1), lwd=c(1,1,3,7))
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Forecast using the model for the second regime - period 1817-2009 -, forecasting 2010-2019}
+\framesubtitle{One-day ahead forecasting}
+<<echo=FALSE, fig.align="center", out.width="2.8in">>=
+# 1 step ahead
+PredDf = data.frame(NULL)
+for(t in 2009:2018){
+  OSAPred=forecast(window(complete_ts, start=1817, end=t), h=1, level=0.95, 
+                   model = fit_2)
+  PredDf=rbind(PredDf, data.frame(mean=OSAPred$mean[1], 
+                                  lower=OSAPred$lower[1], 
+                                  upper = OSAPred$upper[1]))}
+
+interval=range(window(complete_ts, start=1817))
+yval=seq(interval[1], interval[2], length.out=4)
+
+par(mar=c(4,4,4,2))
+plot(window(complete_ts, start=1817), col=4, las=1, yaxt="n", 
+     ylab="Frequency", xlab="Year", main="Forecast from ARIMA(0, 1, 0)")
+axis(2, at=yval, labels=sprintf("%.1e", yval), las=0)
+abline(v=c(1816, 2009, 2019), lty="dotted", col=4, lwd=1)
+interval=2010:2019
+lines(interval, PredDf$mean, col = 'red')
+lines(interval, PredDf$lower, col = 'green')
+lines(interval, PredDf$upper, col = 'green')
+legend(1900, 2.6e-4, legend=c("Observations", "Prediction", "Bounds of CI"),
+       col=c(4, "red", "green"), lty=1)
+@
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Forecast using the model for the second regime - period 1817-2009 -, forecasting 2010-2019}
+\framesubtitle{One-day ahead forecasting}
+A closer look at the forecast.
+<<echo=FALSE, fig.align="center", out.width="2.6in">>=
+interval=range(window(complete_ts, start=1950))
+interval[1]=0.8*interval[1]
+yval=seq(interval[1], interval[2], length.out=4)
+
+par(mar=c(4,4,4,2))
+plot(window(complete_ts, start=2000), col=4, las=1, yaxt="n", 
+     ylab="Frequency", xlab="Year", main="Forecast from ARIMA(0, 1, 0)", 
+     ylim=interval)
+axis(2, at=yval, labels=sprintf("%.1e", yval), las=0)
+abline(v=c(2009, 2019), lty="dotted", col=4, lwd=1)
+interval=2010:2019
+lines(interval, PredDf$mean, col = 'red')
+lines(interval, PredDf$lower, col = 'green')
+lines(interval, PredDf$upper, col = 'green')
+legend(2000, 1.1e-4, legend=c("Observations", "Prediction", "Bounds of CI"),
+       col=c("blue", "red", "green"), lty=1)
+@
+\end{frame}
+
+\end{document}
