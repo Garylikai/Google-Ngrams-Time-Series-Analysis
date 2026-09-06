@@ -1,6 +1,6 @@
 ---
 title: "Ngrams Project"
-author: "Hippies"
+author: "Robert Matsibekker, Kai Li, Cruz Sanchez Hugo, and Thomas Green"
 output:
   html_document:
     df_print: paged
