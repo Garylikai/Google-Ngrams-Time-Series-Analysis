@@ -1,4 +1,4 @@
-# Google Ngrams Time-Series Analysis
+# Google Ngrams Time Series Analysis
 
 A Fall 2021 AMS 586 group project analyzing the annual frequency of the word **“peace”** in the English Google Books Ngram corpus.
 
@@ -6,7 +6,7 @@ A Fall 2021 AMS 586 group project analyzing the annual frequency of the word **�
 
 The analysis retrieves unsmoothed annual data for 1533–2019 and treats the normalized word frequency as a 487-observation time series. It explores:
 
-- stationarity with augmented Dickey–Fuller tests;
+- stationarity with Augmented Dickey–Fuller tests;
 - autocorrelation and partial autocorrelation;
 - structural change with Bai–Perron breakpoint methods;
 - a two-regime Markov-switching model; and
